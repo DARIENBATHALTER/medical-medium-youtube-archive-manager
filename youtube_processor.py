@@ -105,13 +105,14 @@ class YouTubeProcessor:
     
     def _extract_video_metadata(self, video_data: Dict) -> Dict:
         """
-        Extract metadata from YouTube API video response
+        Extract COMPLETE metadata from YouTube API video response
+        EXTRACTS: video_id, title, description, published_at, view_count, like_count, comment_count, thumbnail_url, channel_id
         
         Args:
             video_data: Raw video data from YouTube API
             
         Returns:
-            Formatted video metadata dictionary
+            Formatted video metadata dictionary - MATCHES EXISTING ARCHIVE FORMAT
         """
         snippet = video_data['snippet']
         statistics = video_data.get('statistics', {})
@@ -121,15 +122,16 @@ class YouTubeProcessor:
             snippet['publishedAt'].replace('Z', '+00:00')
         ).strftime('%Y-%m-%dT%H:%M:%SZ')
         
-        return {
-            "video_id": video_data['id'],
+        # Extract all metadata (matching existing archive format)
+        metadata = {
+            "video_id": video_data['id'],  # VIDEO SHORTCODE/ID
             "title": snippet['title'],
-            "description": snippet['description'],
-            "published_at": published_at,
+            "description": snippet['description'],  # FULL DESCRIPTION
+            "published_at": published_at,  # UPLOAD DATE
             "channel_id": snippet['channelId'],
-            "view_count": int(statistics.get('viewCount', 0)),
-            "like_count": int(statistics.get('likeCount', 0)),
-            "comment_count": int(statistics.get('commentCount', 0)),
+            "view_count": int(statistics.get('viewCount', 0)),  # VIEW COUNT
+            "like_count": int(statistics.get('likeCount', 0)),  # LIKE COUNT  
+            "comment_count": int(statistics.get('commentCount', 0)),  # COMMENT COUNT
             "scraped_at": datetime.now().isoformat(),
             "thumbnail_url": snippet['thumbnails'].get('high', {}).get('url', ''),
             "file_path": None,  # Will be set after download
@@ -138,6 +140,17 @@ class YouTubeProcessor:
             "has_summary": False,  # Will be updated after summary generation
             "sync_id": f"auto_{int(datetime.now().timestamp())}"
         }
+        
+        # Log extracted metadata
+        self.logger.info(f"📊 Extracted metadata for {metadata['video_id']}:")
+        self.logger.info(f"   📺 Title: {metadata['title']}")
+        self.logger.info(f"   📅 Published: {metadata['published_at']}")
+        self.logger.info(f"   👀 Views: {metadata['view_count']:,}")
+        self.logger.info(f"   👍 Likes: {metadata['like_count']:,}")  
+        self.logger.info(f"   💬 Comments: {metadata['comment_count']:,}")
+        self.logger.info(f"   📝 Description length: {len(metadata['description'])} chars")
+        
+        return metadata
     
     def get_video_comments(self, video_id: str) -> List[Dict]:
         """

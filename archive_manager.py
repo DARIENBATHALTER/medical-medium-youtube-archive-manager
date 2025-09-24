@@ -148,29 +148,38 @@ class ArchiveManager:
             self.current_status = "checking_new_videos"
             
         try:
-            self.logger.info("Starting new video check...")
+            self.logger.info("🔍 STEP 1: Starting new video check...")
             
             # Load existing data
+            self.logger.info("📁 STEP 2: Loading existing archive data...")
             data = self.load_existing_data()
+            self.logger.info(f"📊 Loaded {len(data['videos'])} existing videos, {len(data['comments'])} comments")
             
             # Find new videos
+            self.logger.info("🔍 STEP 3: Checking YouTube for new videos...")
             new_videos = self.youtube_processor.find_new_videos(data["videos"])
             
             if not new_videos:
-                self.logger.info("No new videos found")
+                self.logger.info("✅ No new videos found - archive is up to date")
                 return {"new_videos": 0, "processed": 0, "errors": 0}
             
+            self.logger.info(f"🎥 STEP 4: Found {len(new_videos)} new videos to process")
+            for i, video in enumerate(new_videos, 1):
+                self.logger.info(f"  📺 {i}. {video['title']} ({video['video_id']})")
+            
             # Process new videos
+            self.logger.info("⚙️ STEP 5: Starting video processing pipeline...")
             results = self.process_new_videos(new_videos, data)
             
             # Save updated data
+            self.logger.info("💾 STEP 6: Saving updated archive data...")
             self.save_archive_data(data)
             
-            self.logger.info(f"New video check complete: {results}")
+            self.logger.info(f"✅ New video check complete: {results}")
             return results
             
         except Exception as e:
-            self.logger.error(f"Error in new video check: {e}")
+            self.logger.error(f"❌ Error in new video check: {e}", exc_info=True)
             raise
         finally:
             with self.processing_lock:
@@ -217,10 +226,19 @@ class ArchiveManager:
     
     def process_single_video(self, video_data: Dict, data: Dict) -> bool:
         """
-        Process a single video completely
+        Process a single video completely - FULL PIPELINE
+        
+        COMPLETE PROCESSING PIPELINE:
+        1. Download MP4 video file via yt-dlp
+        2. Extract metadata (title, description, view_count, like_count, comment_count, published_at, etc.)
+        3. Download transcript (VTT file) via yt-dlp
+        4. Download ALL comments via YouTube Data API
+        5. Process transcript through OpenAI GPT-4o-mini for summary
+        6. Extract keywords via OpenAI GPT-4o-mini
+        7. Save everything in archive-compatible format to /mnt/MM/MedicalMediumArchive/YouTube/MM_YT_archive/
         
         Args:
-            video_data: Video metadata
+            video_data: Video metadata (includes video_id, title, description, view_count, like_count, comment_count, published_at, thumbnail_url, etc.)
             data: Archive data dictionary (thread-safe updates)
             
         Returns:
@@ -233,62 +251,88 @@ class ArchiveManager:
             with self.processing_lock:
                 self.current_status = f"processing_{video_id}"
                 
-            self.logger.info(f"Processing video: {title}")
+            self.logger.info(f"🎬 PROCESSING VIDEO: {title} ({video_id})")
+            self.logger.info(f"📊 Video metadata: views={video_data.get('view_count', 0)}, likes={video_data.get('like_count', 0)}, comments={video_data.get('comment_count', 0)}")
+            self.logger.info(f"📅 Published: {video_data.get('published_at', 'Unknown')}")
             
-            # Step 1: Download video and transcript
+            # STEP 1: Download video and transcript via yt-dlp
+            self.logger.info(f"📥 STEP 1: Downloading video and transcript for {video_id}...")
             video_file, transcript_file = self.youtube_processor.download_video_with_transcript(
                 video_id, self.videos_dir
             )
             
             if not video_file:
-                self.logger.error(f"Failed to download video {video_id}")
+                self.logger.error(f"❌ Failed to download video {video_id}")
                 return False
             
-            # Step 2: Update video metadata with file paths
+            self.logger.info(f"✅ Downloaded video: {video_file}")
+            if transcript_file:
+                self.logger.info(f"✅ Downloaded transcript: {transcript_file}")
+            else:
+                self.logger.warning(f"⚠️ No transcript available for {video_id}")
+            
+            # STEP 2: Update video metadata with file paths and archive info
+            self.logger.info(f"📝 STEP 2: Updating video metadata...")
             video_data['file_path'] = f"videos/{video_file}"
             video_data['added_to_archive'] = datetime.now().isoformat()
             
-            # Step 3: Download comments
+            # STEP 3: Download ALL comments via YouTube Data API
+            self.logger.info(f"💬 STEP 3: Downloading comments for {video_id}...")
             comments = self.youtube_processor.get_video_comments(video_id)
+            self.logger.info(f"✅ Downloaded {len(comments)} comments")
             
-            # Step 4: Process transcript and generate content (if transcript available)
+            # STEP 4: Process transcript through OpenAI for summary and keywords
             transcript_text = ""
             summary_text = ""
             keywords = []
             
             if transcript_file:
+                self.logger.info(f"🤖 STEP 4: Processing transcript through OpenAI GPT-4o-mini...")
                 transcript_path = self.videos_dir / transcript_file
+                
+                self.logger.info(f"📄 Processing VTT file: {transcript_path}")
                 transcript_text, summary_text, keywords = self.openai_processor.process_video_content(
                     video_data, transcript_path
                 )
                 
-                # Save processed content
+                self.logger.info(f"✅ Generated summary: {len(summary_text)} characters")
+                self.logger.info(f"✅ Extracted keywords: {len(keywords)} keywords")
+                self.logger.info(f"🔑 Keywords: {', '.join(keywords[:5])}..." if keywords else "🔑 No keywords extracted")
+                
+                # STEP 5: Save processed content to archive
+                self.logger.info(f"💾 STEP 5: Saving processed content to archive...")
                 self.openai_processor.save_processed_content(
                     video_data, transcript_text, summary_text, keywords, self.videos_dir
                 )
                 
-                # Update flags
+                # Update processing flags
                 video_data['has_transcript'] = bool(transcript_text)
                 video_data['has_summary'] = bool(summary_text)
+                self.logger.info(f"✅ Saved transcript ({len(transcript_text)} chars), summary ({len(summary_text)} chars)")
+            else:
+                self.logger.info(f"⏭️ STEP 4: Skipping transcript processing - no transcript available")
             
-            # Step 5: Update archive data structures (thread-safe)
+            # STEP 6: Update archive data structures (thread-safe) - MATCHING EXISTING FORMAT
+            self.logger.info(f"🗂️ STEP 6: Updating archive data structures...")
             with self.processing_lock:
-                # Add video to videos list
+                # Add video to videos.json (matches existing format)
                 data["videos"].append(video_data)
+                self.logger.info(f"✅ Added video to videos.json")
                 
-                # Add comments to comments list
+                # Add comments to comments.json (matches existing format)
                 data["comments"].extend(comments)
+                self.logger.info(f"✅ Added {len(comments)} comments to comments.json")
                 
-                # Update video mapping
+                # Update video-mapping.json (matches existing format)
                 data["video_mapping"][video_id] = {
                     "file_path": f"videos/{video_file}",
                     "title": title,
                     "added_at": video_data['added_to_archive']
                 }
+                self.logger.info(f"✅ Updated video-mapping.json")
                 
-                # Update transcript index
+                # Update transcript_index.json (matches existing format)
                 if transcript_text:
-                    # Create transcript key patterns (matching existing format)
                     safe_title = title.replace(":", "").replace("'", "").replace('"', '')
                     transcript_key = f"{safe_title}_{video_id}"
                     
@@ -298,10 +342,10 @@ class ArchiveManager:
                         "transcript": transcript_text,
                         "processed_at": datetime.now().isoformat()
                     }
+                    self.logger.info(f"✅ Updated transcript_index.json with key: {transcript_key}")
                 
-                # Update keywords
+                # Update keywords.json (matches existing format)
                 if keywords:
-                    # Create keyword key patterns (matching existing format)
                     safe_title = title.replace(":", "").replace("'", "").replace('"', '')
                     keyword_patterns = [
                         f"{safe_title}_{video_id}",
@@ -311,12 +355,25 @@ class ArchiveManager:
                     
                     for pattern in keyword_patterns:
                         data["keywords"][pattern] = keywords
+                    self.logger.info(f"✅ Updated keywords.json with {len(keyword_patterns)} patterns")
             
-            self.logger.info(f"Successfully processed video: {title}")
+            # FINAL STATUS
+            file_info = f"MP4: {video_file}"
+            if transcript_file:
+                file_info += f", VTT: {transcript_file}"
+            if transcript_text:
+                file_info += f", Summary: {len(summary_text)} chars"
+            if keywords:
+                file_info += f", Keywords: {len(keywords)}"
+            
+            self.logger.info(f"🎉 SUCCESSFULLY PROCESSED: {title}")
+            self.logger.info(f"📁 Files created: {file_info}")
+            self.logger.info(f"💬 Comments: {len(comments)}")
+            self.logger.info(f"📍 Saved to: {self.videos_dir}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error processing video {video_id}: {e}")
+            self.logger.error(f"❌ ERROR processing video {video_id} ({title}): {e}", exc_info=True)
             return False
     
     def update_existing_metadata(self) -> Dict:

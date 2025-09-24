@@ -204,12 +204,18 @@ class YouTubeArchiveManager:
         self.youtube_key_var = tk.StringVar(value=self.config.get("youtube_api_key", ""))
         youtube_entry = ttk.Entry(api_frame, textvariable=self.youtube_key_var, show="*", width=50)
         youtube_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.setup_paste_bindings(youtube_entry)
+        ttk.Button(api_frame, text="Paste", width=8,
+                  command=lambda: self.paste_from_clipboard(self.youtube_key_var)).grid(row=0, column=2, padx=5, pady=5)
         
         # OpenAI API Key
         ttk.Label(api_frame, text="OpenAI API Key:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.openai_key_var = tk.StringVar(value=self.config.get("openai_api_key", ""))
         openai_entry = ttk.Entry(api_frame, textvariable=self.openai_key_var, show="*", width=50)
         openai_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.setup_paste_bindings(openai_entry)
+        ttk.Button(api_frame, text="Paste", width=8,
+                  command=lambda: self.paste_from_clipboard(self.openai_key_var)).grid(row=1, column=2, padx=5, pady=5)
         
         # Archive settings section
         archive_frame = ttk.LabelFrame(config_frame, text="Archive Settings")
@@ -553,6 +559,62 @@ class YouTubeArchiveManager:
         self.logs_text.config(state=tk.NORMAL)
         self.logs_text.delete(1.0, tk.END)
         self.logs_text.config(state=tk.DISABLED)
+
+    def setup_paste_bindings(self, entry_widget):
+        """Set up keyboard shortcuts for pasting in Entry widgets"""
+        # Standard paste shortcuts
+        entry_widget.bind('<Control-v>', self.paste_event)
+        entry_widget.bind('<Control-V>', self.paste_event)
+        entry_widget.bind('<Shift-Insert>', self.paste_event)
+        
+        # Right-click context menu
+        self.setup_context_menu(entry_widget)
+    
+    def setup_context_menu(self, entry_widget):
+        """Add right-click context menu to Entry widgets"""
+        context_menu = tk.Menu(entry_widget, tearoff=0)
+        context_menu.add_command(label="Cut", command=lambda: entry_widget.event_generate("<<Cut>>"))
+        context_menu.add_command(label="Copy", command=lambda: entry_widget.event_generate("<<Copy>>"))
+        context_menu.add_command(label="Paste", command=lambda: entry_widget.event_generate("<<Paste>>"))
+        context_menu.add_separator()
+        context_menu.add_command(label="Select All", command=lambda: entry_widget.select_range(0, tk.END))
+        
+        def show_context_menu(event):
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+        
+        entry_widget.bind("<Button-3>", show_context_menu)  # Right-click
+    
+    def paste_event(self, event):
+        """Handle paste keyboard events"""
+        try:
+            # Get clipboard content
+            clipboard_content = self.root.clipboard_get()
+            
+            # Clear current selection and insert clipboard content
+            widget = event.widget
+            widget.delete(0, tk.END)
+            widget.insert(0, clipboard_content)
+            
+            return "break"  # Prevent default handling
+        except tk.TclError:
+            # Clipboard is empty or contains non-text data
+            pass
+        except Exception as e:
+            self.log_activity(f"Paste error: {e}")
+    
+    def paste_from_clipboard(self, string_var):
+        """Paste from clipboard using the paste button"""
+        try:
+            clipboard_content = self.root.clipboard_get()
+            string_var.set(clipboard_content)
+            self.log_activity("API key pasted from clipboard")
+        except tk.TclError:
+            messagebox.showwarning("Clipboard", "Clipboard is empty or contains non-text data")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to paste from clipboard: {e}")
 
     def on_closing(self):
         """Handle application closing"""

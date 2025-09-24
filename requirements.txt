@@ -1,0 +1,24 @@
+# YouTube Archive Manager Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+yt-dlp>=2024.8.6
+google-api-python-client>=2.140.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+openai>=1.35.0
+
+# Scheduling and utilities
+schedule>=1.2.2
+requests>=2.31.0
+
+# GUI (usually included with Python, but listed for completeness)
+# tkinter is included with most Python installations
+
+# Optional: For better error handling and logging
+colorlog>=6.8.2
+tqdm>=4.66.4
+
+# Development/testing (optional)
+pytest>=8.3.2
+black>=24.8.0
